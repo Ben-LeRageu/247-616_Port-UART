@@ -19,6 +19,7 @@
 const char *portTTY = "/dev/ttyS1";
 int fd; // File Descriptor
 pid_t child_pid;
+int pipefd[2];
 
 void initPortSerie(void)
  {
@@ -38,7 +39,7 @@ void initPortSerie(void)
     SerialPortSettings.c_cflag |= CREAD | CLOCAL;
     
     SerialPortSettings.c_iflag &= ~(IXON | IXOFF | IXANY);
-    SerialPortSettings.c_lflag |= ICANON;
+    SerialPortSettings.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
     SerialPortSettings.c_oflag &= ~OPOST;
 
     // Configuration des délais
@@ -56,24 +57,22 @@ void parent_read_process()
  {
     char read_buffer[32];
     int bytes_read;
+    int i = 0;
 
     printf("Je suis le processus Père, j'écrit sur la console (terminal) ce que j'entends sur le port série...\n");    
-    while (1)
-    {
+      while(read_buffer[i] != '!' && i<32)
+      {
         bytes_read = read(fd, &read_buffer, sizeof(read_buffer)); // Lire les données depuis le port série
         
-        if (bytes_read > 0)
-        {
+       i++;
+      }
 	   printf("processus Père: nombre d'octets reçus : %d --> ", bytes_read);
-            for (int i = 0; i < bytes_read; i++)
-             {
+            for (i = 0; i < bytes_read; i++)
+             
                 // Afficher chaque caractère
                 printf("%c", read_buffer[i]);
                 fflush(stdout);
 
-                // Terminer si le caractère '!' est reçu
-                if (read_buffer[i] == '!')
-                 {
                     // Terminer le processus enfant
                     printf("\nFin du Fils\n");
                     kill(child_pid, SIGTERM); // Envoyer le signal de terminaison à l'enfant
@@ -86,34 +85,25 @@ void parent_read_process()
                     printf("Fin du Père\n");
                     close(fd);
                     return;
-                }
-            }
-	    printf("\n");
-        }
-    }
 }
 
 void child_write_process()
  {
     char write_buffer[32];
-    
-    printf("Je suis le processus Fils, j'écrit sur le port série ce que j'entends sur la console (terminal)...\n");
-    while (1)
-    {
-        // Lire l'entrée utilisateur
-        fgets(write_buffer, sizeof(write_buffer), stdin);
-        
-        // Terminer si l'utilisateur entre 'q'
-        if (write_buffer[0] == 'q')
-        {
-	   printf("Fin du Fils\n");
-            kill(getppid(), SIGTERM);// Envoyer un signal au parent pour terminer
-            return;
-        }
+    char cCharWritten;
+    char cTruc = 0;
+    int bytes_written = 0;
 
-        // Écrire les données sur le port série
-        write(fd, write_buffer, strlen(write_buffer));
+    printf("Je suis le processus Fils, j'écrit sur le port série ce que j'entends sur la console (terminal)...\n");
+    cCharWritten = getchar();
+    while (cCharWritten != 'q')
+    {
+      write_buffer[cTruc] = cCharWritten ;
+      cTruc ++ ;
+      cCharWritten = getchar();
     }
+   bytes_written = write(fd, write_buffer, cTruc) ;
+    printf("Fin du Fils\n");
 }
 
 void signal_handler(int signo)
@@ -146,17 +136,18 @@ void main(void)
     // Initialiser le port série
     initPortSerie();
     
+    if (pipe(pipefd) == -1) {
+        perror("pipe");
+        return -1;
+    }
     // Créer un processus enfant
     child_pid = fork();
-
-    if (child_pid < 0)
-    {
-        // Erreur lors de la création du processus
-        printf("\nErreur lors de la création du processus enfant\n");
-        close(fd);
-        exit(EXIT_FAILURE);
+    if (child_pid == -1) { // Une erreur s'est produite
+        perror("fork");
+        return -1;
     }
-     else if (child_pid == 0)
+
+     if (child_pid == 0)
      {
         // Code du processus enfant : écriture des données
         child_write_process();
