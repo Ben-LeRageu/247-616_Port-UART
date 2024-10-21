@@ -11,18 +11,60 @@
 #include <termios.h> // POSIX Terminal Control Definitions 
 #include <unistd.h>  // UNIX Standard Definitions 
 #include <errno.h>   // ERROR Number Definitions
-#include <string.h>
 #include <stdlib.h>
-#include <signal.h>
 #include <sys/wait.h>
+void initPortSerie(void);
+void child_write_process(void);
+void parent_read_process(void);
 
 const char *portTTY = "/dev/ttyS1";
 int fd; // File Descriptor
-pid_t child_pid;
-int pipefd[2];
 
+int main()
+ {
+    pid_t pid;
+    printf("\nInitialisation du port série...\n");
+    // Initialiser le port série
+    initPortSerie();
+    // Créer un processus enfant
+    pid = fork();
+   // if (child_pid == -1) 
+    //{ // Une erreur s'est produite
+      //  perror("fork");
+        //return -1;
+    //}
+
+    if (pid == 0)
+    { 
+        printf("Je suis le processus Fils, j'écrit sur le port série ce que j'entends sur la console (terminal)...\n");
+        // Code du processus enfant : écriture des données
+      child_write_process();
+     // exit(0);
+     printf("Fin du Fils\n");
+    }
+    else
+    {
+        printf("Je suis le processus Père, j'écrit sur la console (terminal) ce que j'entends sur le port série...\n");  
+        // Code du processus parent : lecture des données
+        parent_read_process();
+        printf("Fin du Processus pere\n");
+        wait(NULL);
+    }
+    close(fd);
+}
 void initPortSerie(void)
  {
+    // Ouvrir le port série
+    fd = open(portTTY, O_RDWR | O_NOCTTY);
+    if (fd == -1)
+    {
+        printf("\nErreur! ouverture de %s\n", portTTY);
+        exit(EXIT_FAILURE);
+    }
+    else
+    {
+        printf("\nOuverture de %s réussie\n", portTTY);
+    }
     struct termios SerialPortSettings;
     tcgetattr(fd, &SerialPortSettings); // Obtenir les attributs actuels du port série
     
@@ -51,110 +93,74 @@ void initPortSerie(void)
         printf("\nErreur! configuration des attributs du port série");
         exit(EXIT_FAILURE);
     }
+    tcflush(fd, TCIFLUSH);  // Discards old data in the rx buffer
 }
 
-void parent_read_process()
+void parent_read_process(void)
  {
     char read_buffer[32];
     int bytes_read;
     int i = 0;
-
-    printf("Je suis le processus Père, j'écrit sur la console (terminal) ce que j'entends sur le port série...\n");    
-      while(read_buffer[i] != '!' && i<32)
+      while(1)
       {
-        bytes_read = read(fd, &read_buffer, sizeof(read_buffer)); // Lire les données depuis le port série
-        
-       i++;
+        bytes_read = read(fd, read_buffer, sizeof(read_buffer)); // Lire les données depuis le port série
+        if(bytes_read < 0)
+        {
+         perror("Erruer de lecture");
+         exit(EXIT_FAILURE);
+        }
+      
+        read_buffer[bytes_read] = '\0' ;
+	     printf("processus Père: nombre d'octets reçus : %d --> %s\n", bytes_read, read_buffer);
+            if(read_buffer[0] == '!')
+            {
+                break;
+            }
       }
-	   printf("processus Père: nombre d'octets reçus : %d --> ", bytes_read);
-            for (i = 0; i < bytes_read; i++)
-             
+
                 // Afficher chaque caractère
-                printf("%c", read_buffer[i]);
-                fflush(stdout);
+  //              printf("%c", read_buffer[i]);
+    //            fflush(stdout);
 
                     // Terminer le processus enfant
-                    printf("\nFin du Fils\n");
-                    kill(child_pid, SIGTERM); // Envoyer le signal de terminaison à l'enfant
-                    
+      //              printf("\nFin du Fils\n");
+                  //  kill(child_pid, SIGTERM); // Envoyer le signal de terminaison à l'enfant
                     // Attendre que l'enfant se termine
-                    wait(NULL);
-
-                    // Message de fin du processus père
-                    printf("processus Père: nombre d'octets reçus : 1 --> !\n");
-                    printf("Fin du Père\n");
-                    close(fd);
-                    return;
+        //            wait(NULL);
+              //      close(fd);
+                //    return;
 }
 
-void child_write_process()
+void child_write_process(void)
  {
-    char write_buffer[32];
+     char write_buffer[32];
     char cCharWritten;
-    char cTruc = 0;
-    int bytes_written = 0;
-
-    printf("Je suis le processus Fils, j'écrit sur le port série ce que j'entends sur la console (terminal)...\n");
-    cCharWritten = getchar();
-    while (cCharWritten != 'q')
+    // char cTruc = 0;
+    // int bytes_written = 0;
+    while(1)
     {
-      write_buffer[cTruc] = cCharWritten ;
-      cTruc ++ ;
-      cCharWritten = getchar();
-    }
-   bytes_written = write(fd, write_buffer, cTruc) ;
-    printf("Fin du Fils\n");
-}
-
-void signal_handler(int signo)
- {
-    if (signo == SIGTERM)
-    {
-        close(fd);
-        exit(0);
-    }
-}
-
-void main(void)
- {
-    signal(SIGTERM, signal_handler); // Enregistrer le gestionnaire de signal pour SIGTERM
-
-    printf("\nInitialisation du port série...\n");
-    
-    // Ouvrir le port série
-    fd = open(portTTY, O_RDWR | O_NOCTTY);
-    if (fd == -1)
-    {
-        printf("\nErreur! ouverture de %s\n", portTTY);
-        exit(EXIT_FAILURE);
-    }
-    else
-    {
-        printf("\nOuverture de %s réussie\n", portTTY);
-    }
-
-    // Initialiser le port série
-    initPortSerie();
-    
-    if (pipe(pipefd) == -1) {
-        perror("pipe");
-        return -1;
-    }
-    // Créer un processus enfant
-    child_pid = fork();
-    if (child_pid == -1) { // Une erreur s'est produite
-        perror("fork");
-        return -1;
-    }
-
-     if (child_pid == 0)
+         cCharWritten = getchar();
+     if(write(fd, &cCharWritten, 1) <0)
      {
-        // Code du processus enfant : écriture des données
-        child_write_process();
+        perror("Erreur d'écriture");
+        exit(EXIT_FAILURE);
+     }
+     if(cCharWritten == 'q')
+     {
+        break;
+     }
     }
-    else
-    {
-        // Code du processus parent : lecture des données
-        parent_read_process();
-    }
+
+    //  fgets(write_buffer, sizeof(write_buffer), stdin);
+      //write_buffer[strcspn(write_buffer, "\n")] = 0;
+     
+      //while (cCharWritten != 'q')
+      //{
+        //write_buffer[cTruc] = cCharWritten ;
+        //cTruc ++ ;
+        //cCharWritten = getchar();
+        //bytes_written = write(fd, write_buffer, cTruc) ;
+      //}
+   
+    
 }
